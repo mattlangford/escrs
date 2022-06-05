@@ -1,31 +1,22 @@
+use paste::paste;
+
+#[derive(Debug, Default)]
 struct State {
     x: f64,
     y: f64,
     vx: f64,
     vy: f64,
 }
+
+#[derive(Debug, Default)]
 struct Mass {
     m: f64,
 }
 
+#[derive(Debug, Default)]
 struct Force {
     fx: f64,
     fy: f64,
-}
-
-#[derive(Default)]
-struct Components {
-    state: Vec<(usize, State)>,
-    mass: Vec<(usize, Mass)>,
-    force: Vec<(usize, Force)>,
-}
-
-#[derive(Default)]
-struct Entity {
-    id: usize,
-    state: Option<usize>,
-    mass: Option<usize>,
-    force: Option<usize>,
 }
 
 fn push_and_index<T>(vec: &mut Vec<T>, t: T) -> usize {
@@ -75,15 +66,35 @@ macro_rules! add_accessors {
     };
 }
 
-add_accessors!(state, State);
-add_accessors!(mass, Mass);
-add_accessors!(force, Force);
+#[macro_export]
+macro_rules! generate {
+    ($($t:ty),*) => {
+        paste! {
+            #[derive(Debug, Default)]
+            struct Components {
+                $([<$t:lower>]: Vec<(usize, $t)>,)*
+            }
 
-#[derive(Default)]
-struct Manager {
-    entities: Vec<Entity>,
-    components: Components,
+            #[derive(Debug, Default)]
+            struct Entity {
+                id: usize,
+                $([<$t:lower>]: Option<usize>,)*
+            }
+
+            $(
+                add_accessors!([<$t:lower>], $t);
+            )*
+
+            #[derive(Debug, Default)]
+            struct Manager {
+                entities: Vec<Entity>,
+                components: Components,
+            }
+        }
+    };
 }
+
+generate!(State, Mass, Force);
 
 struct EntityBuilder<'a> {
     e: &'a mut Entity,
@@ -98,18 +109,6 @@ impl EntityBuilder<'_> {
     {
         <Entity as EntityAccess<T>>::set(self.e, self.c.add(t, self.e.id));
         self
-    }
-}
-
-impl Manager {
-    fn add_entity(&mut self) -> EntityBuilder<'_> {
-        let i = push_and_index(&mut self.entities, Entity::default());
-        let e = self.entities.last_mut().unwrap();
-        e.id = i;
-        EntityBuilder {
-            e: self.entities.last_mut().unwrap(),
-            c: &mut self.components,
-        }
     }
 }
 
@@ -128,6 +127,18 @@ impl Entity {
     }
 }
 
+impl Manager {
+    fn add_entity(&mut self) -> EntityBuilder<'_> {
+        let i = push_and_index(&mut self.entities, Entity::default());
+        let e = self.entities.last_mut().unwrap();
+        e.id = i;
+        EntityBuilder {
+            e: self.entities.last_mut().unwrap(),
+            c: &mut self.components,
+        }
+    }
+}
+
 fn update_state2(m: &mut Manager, dt: f64) {
     for (n, state) in m.components.state.iter_mut() {
         state.x += state.vx * dt;
@@ -141,6 +152,7 @@ fn update_state2(m: &mut Manager, dt: f64) {
         }
     }
 }
+
 /*
 fn update_state(m: &mut Manager, dt: f64) {
     let c = &mut m.components;
@@ -156,13 +168,11 @@ fn update_state(m: &mut Manager, dt: f64) {
 }*/
 
 fn print_state(m: &mut Manager) {
-    let c = &mut m.components;
     for e in &m.entities {
-        if let (Some(state), Some(mass)) = (e.get_mut(&mut c.state), e.get(&c.mass)) {
-            state.x = 123.0;
+        if let (Some(s), Some(m)) = (e.get(&m.components.state), e.get(&m.components.mass)) {
             println!(
                 "2 id:{} pos: {:.3},{:.3} vel: {:.3},{:.3} mass: {:.3}",
-                e.id, state.x, state.y, state.vx, state.vy, mass.m
+                e.id, s.x, s.y, s.vx, s.vy, m.m
             )
         }
     }
