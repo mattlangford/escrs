@@ -35,6 +35,13 @@ trait ComponentAccess<T> {
     fn add(&mut self, t: T, id: usize) -> usize;
 }
 
+trait EntityBuilder<E, C> {
+    fn add<T>(&mut self, t: T) -> &mut Self
+    where
+        E: EntityAccess<T>,
+        C: ComponentAccess<T>;
+}
+
 #[macro_export]
 macro_rules! add_accessors {
     ($x:ident, $t:ty) => {
@@ -85,32 +92,39 @@ macro_rules! generate {
                 add_accessors!([<$t:lower>], $t);
             )*
 
+            struct Builder<'a> {
+                e: &'a mut Entity,
+                c: &'a mut Components,
+            }
+            impl<'a> EntityBuilder<Entity, Components> for Builder<'a> {
+                fn add<T>(&mut self, t: T) -> &mut Self where Entity: EntityAccess<T>, Components: ComponentAccess<T> {
+                    <Entity as EntityAccess<T>>::set(self.e, self.c.add(t, self.e.id));
+                    self
+                }
+            }
+
             #[derive(Debug, Default)]
             struct Manager {
                 entities: Vec<Entity>,
                 components: Components,
+            }
+
+            impl Manager {
+                fn add_entity(&mut self) -> impl EntityBuilder<Entity, Components> + '_ {
+                    let i = push_and_index(&mut self.entities, Entity::default());
+                    let e = self.entities.last_mut().unwrap();
+                    e.id = i;
+                    Builder {
+                        e: self.entities.last_mut().unwrap(),
+                        c: &mut self.components,
+                    }
+                }
             }
         }
     };
 }
 
 generate!(State, Mass, Force);
-
-struct EntityBuilder<'a> {
-    e: &'a mut Entity,
-    c: &'a mut Components,
-}
-
-impl EntityBuilder<'_> {
-    fn add<T>(&mut self, t: T) -> &mut Self
-    where
-        Entity: EntityAccess<T>,
-        Components: ComponentAccess<T>,
-    {
-        <Entity as EntityAccess<T>>::set(self.e, self.c.add(t, self.e.id));
-        self
-    }
-}
 
 impl Entity {
     fn get<'a, T>(&self, v: &'a Vec<(usize, T)>) -> Option<&'a T>
@@ -124,18 +138,6 @@ impl Entity {
         Entity: EntityAccess<T>,
     {
         <Entity as EntityAccess<T>>::get(self).map(move |i| &mut v[i].1)
-    }
-}
-
-impl Manager {
-    fn add_entity(&mut self) -> EntityBuilder<'_> {
-        let i = push_and_index(&mut self.entities, Entity::default());
-        let e = self.entities.last_mut().unwrap();
-        e.id = i;
-        EntityBuilder {
-            e: self.entities.last_mut().unwrap(),
-            c: &mut self.components,
-        }
     }
 }
 
