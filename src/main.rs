@@ -3,7 +3,6 @@ use paste::paste;
 mod macros;
 mod traits;
 
-use macros::*;
 use traits::*;
 
 #[derive(Debug, Default)]
@@ -43,33 +42,19 @@ fn print_state(m: &mut Manager) {
     });
 }
 
-fn update_state2(m: &mut Manager, dt: f64) {
-    for (n, state) in m.components.state.iter_mut() {
+fn update_state(m: &mut Manager, dt: f64) {
+    run_system!(m, mut (e, state: State) {
         state.x += state.vx * dt;
         state.y += state.vy * dt;
-        if let Some(mass_i) = m.entities[*n].mass {
-            for (_, force_other) in &m.components.force {
-                let (_, mass) = &m.components.mass[mass_i];
-                state.vx += dt * force_other.fx / mass.m;
-                state.vy += dt * force_other.fy / mass.m;
-            }
+        println!("state: {:?}", state)
+    });
+    run_system!(m, mut (e, state: State, mass: Mass) {
+        for (_, force) in &m.components.force {
+            state.vx += dt * force.fx / mass.m;
+            state.vy += dt * force.fy / mass.m;
         }
-    }
+    });
 }
-
-/*
-fn update_state(m: &mut Manager, dt: f64) {
-    let c = &mut m.components;
-    for e in &m.entities {
-        if let (Some(state), Some(mass)) = (e.get_mut(&mut c.state), e.get(&c.mass)) {
-            state.x = 123.0;
-            println!(
-                "2 id:{} pos: {:.3},{:.3} vel: {:.3},{:.3} mass: {:.3}",
-                e.id, state.x, state.y, state.vx, state.vy, mass
-            )
-        }
-    }
-}*/
 
 fn main() {
     let mut m = Manager::default();
@@ -96,5 +81,8 @@ fn main() {
             vy: 0.0,
         })
         .add(Mass { m: 20.0 });
+
+    print_state(&mut m);
+    update_state(&mut m, 1.0);
     print_state(&mut m);
 }

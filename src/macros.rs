@@ -1,4 +1,4 @@
-#![macro_escape]
+#![macro_use]
 
 macro_rules! add_accessors {
     ($x:ident, $t:ty) => {
