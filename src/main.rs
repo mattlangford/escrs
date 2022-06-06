@@ -137,25 +137,23 @@ macro_rules! generate {
 macro_rules! run_system {
     ($m: ident, ($e:ident $(,$name:ident: $type: ty)*) { $($body:expr);* }) => {
         for $e in &$m.entities {
-            paste!(
-                if let ( $(Some($name),)* ) = (
-                    $(EntityAccess::<$type>::get($e).map(|i| &$m.components.[<$type:lower>][i].1),)*
-                ) {
-                    $($body);*
-                }
-            )
+            if let ( $(Some($name),)* ) = (
+                $(EntityAccess::<$type>::get($e).map(|i| ComponentAccess::<$type>::get(&$m.components, i)),)*
+            ) {
+                $($body);*
+            }
         }
     };
 
     ($m: ident, mut ($e:ident $(,$name:ident: $type: ty)*) { $($body:expr);* }) => {
-        let comp = &mut $m.components;
         for $e in &$m.entities {
             paste!(
-                if let ( $(Some($name),)* ) = (
-                    $(EntityAccess::<$type>::get($e).map(|i| &mut $m.components.[<$type:lower>][i].1),)*
-                ) {
-                    $($body);*
-                }
+            if let ( $(Some($name),)* ) = (
+                // TODO: This is is really annoying that it requires paste!() to work...
+                $($e.[<$type:lower>].map(|i| &mut $m.components.[<$type:lower>][i].1),)*
+            ) {
+                $($body);*
+            }
             )
         }
     };
@@ -164,6 +162,12 @@ macro_rules! run_system {
 generate!(State, Mass, Force);
 
 fn print_state(m: &mut Manager) {
+    run_system!(m, (e, s: State, m: Mass) {
+        println!(
+            "before id: {} pos: ({:.3},{:.3}) vel: ({:.3},{:.3}) mass: {}",
+            e.id, s.x, s.y, s.vx, s.vy, m.m
+        )
+    });
     run_system!(m, mut (e, s: State, m: Mass) {
         s.x = 123.0;
         println!(
