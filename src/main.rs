@@ -25,14 +25,31 @@ fn push_and_index<T>(vec: &mut Vec<T>, t: T) -> usize {
 }
 
 trait EntityAccess<T> {
-    fn get(&self) -> Option<usize>;
-    fn set(&mut self, i: usize);
-    fn reset(&mut self) -> Option<usize>;
+    fn set(&mut self, i: usize) {
+        *self.get_mut() = Some(i);
+    }
+    fn reset(&mut self) -> Option<usize> {
+        let ret = *self.get();
+        *self.get_mut() = None;
+        ret
+    }
+
+    fn get(&self) -> &Option<usize>;
+    fn get_mut(&mut self) -> &mut Option<usize>;
 }
 trait ComponentAccess<T> {
-    fn get(&self, i: usize) -> &T;
-    fn get_mut(&mut self, i: usize) -> &mut T;
-    fn add(&mut self, t: T, id: usize) -> usize;
+    fn get(&self, i: usize) -> &T {
+        &self.raw_get()[i].1
+    }
+    fn get_mut(&mut self, i: usize) -> &mut T {
+        &mut self.raw_get_mut()[i].1
+    }
+    fn add(&mut self, t: T, id: usize) -> usize {
+        push_and_index(self.raw_get_mut(), (id, t))
+    }
+
+    fn raw_get(&self) -> &Vec<(usize, T)>;
+    fn raw_get_mut(&mut self) -> &mut Vec<(usize, T)>;
 }
 
 trait EntityBuilder<E, C> {
@@ -46,28 +63,20 @@ trait EntityBuilder<E, C> {
 macro_rules! add_accessors {
     ($x:ident, $t:ty) => {
         impl EntityAccess<$t> for Entity {
-            fn get(&self) -> Option<usize> {
-                self.$x
+            fn get(&self) -> &Option<usize> {
+                &self.$x
             }
-            fn set(&mut self, i: usize) {
-                self.$x = Some(i);
-            }
-            fn reset(&mut self) -> Option<usize> {
-                let ret = self.$x;
-                self.$x = None;
-                ret
+            fn get_mut(&mut self) -> &mut Option<usize> {
+                &mut self.$x
             }
         }
 
         impl ComponentAccess<$t> for Components {
-            fn get(&self, i: usize) -> &$t {
-                &self.$x[i].1
+            fn raw_get(&self) -> &Vec<(usize, $t)> {
+                &self.$x
             }
-            fn get_mut(&mut self, i: usize) -> &mut $t {
-                &mut self.$x[i].1
-            }
-            fn add(&mut self, t: $t, id: usize) -> usize {
-                push_and_index(&mut self.$x, (id, t))
+            fn raw_get_mut(&mut self) -> &mut Vec<(usize, $t)> {
+                &mut self.$x
             }
         }
     };
@@ -92,6 +101,7 @@ macro_rules! generate {
                 add_accessors!([<$t:lower>], $t);
             )*
 
+
             struct Builder<'a> {
                 e: &'a mut Entity,
                 c: &'a mut Components,
@@ -110,7 +120,7 @@ macro_rules! generate {
             }
 
             impl Manager {
-                fn add_entity(&mut self) -> impl EntityBuilder<Entity, Components> + '_ {
+               fn add_entity(&mut self) -> impl EntityBuilder<Entity, Components> + '_ {
                     let i = push_and_index(&mut self.entities, Entity::default());
                     let e = self.entities.last_mut().unwrap();
                     e.id = i;
@@ -124,22 +134,39 @@ macro_rules! generate {
     };
 }
 
-generate!(State, Mass, Force);
+//fn load<'a, T, E: EntityAccess<T>>(entity: &E, comp: impl Iterator<Item=&'a T>) -> Option<&'a T> {
+//    <E as EntityAccess<T>>::get(entity).map(|i| comp.skip(i).next().unwrap())
+//}
+//fn load_mut<'a, T, E: EntityAccess<T>>(entity: &E, comp: impl Iterator<Item=&'a mut T>) -> Option<&'a mut T> {
+//    <E as EntityAccess<T>>::get(entity).map(|i| comp.skip(i).next().unwrap())
+//}
 
-impl Entity {
-    fn get<'a, T>(&self, v: &'a Vec<(usize, T)>) -> Option<&'a T>
-    where
-        Entity: EntityAccess<T>,
-    {
-        <Entity as EntityAccess<T>>::get(self).map(|i| &v[i].1)
-    }
-    fn get_mut<'a, T>(&self, v: &'a mut Vec<(usize, T)>) -> Option<&'a mut T>
-    where
-        Entity: EntityAccess<T>,
-    {
-        <Entity as EntityAccess<T>>::get(self).map(move |i| &mut v[i].1)
-    }
+macro_rules! filter_map {
+    ($iter: expr, $entity: ident, $components: expr, $t:ty, ($($passthrough: ident),*)) => {
+        $iter.filter_map(|(e $(,$passthrough)*)| EntityAccess::<$t>::get(e).map(
+            |i| (e, $($passthrough,)* ComponentAccess::<$t>::get(&$components, i))))
+    };
+    ($iter: expr, $entity: ident, $components: expr, $t:ty) => {
+        $iter.filter_map(|e| EntityAccess::<$t>::get(e).map(
+            |i| (e, ComponentAccess::<$t>::get(&$components, i))))
+    };
 }
+
+macro_rules! entity_iter {
+    ($m: ident, $t: ty) => {
+        filter_map!($m.entities.iter(), e, $m.components, $t)
+    };
+
+    ($m: ident, $t1: ty, $t2: ty) => {
+        filter_map!(entity_iter!($m, $t1), e, $m.components, $t2, (_1))
+    };
+
+    ($m: ident, $t1: ty, $t2: ty, $t3: ty) => {
+        filter_map!(entity_iter!($m, $t1, $t2), e, $m.components, $t2, (_1, _2))
+    };
+}
+
+generate!(State, Mass, Force);
 
 fn update_state2(m: &mut Manager, dt: f64) {
     for (n, state) in m.components.state.iter_mut() {
@@ -170,13 +197,17 @@ fn update_state(m: &mut Manager, dt: f64) {
 }*/
 
 fn print_state(m: &mut Manager) {
-    for e in &m.entities {
-        if let (Some(s), Some(m)) = (e.get(&m.components.state), e.get(&m.components.mass)) {
-            println!(
-                "2 id:{} pos: {:.3},{:.3} vel: {:.3},{:.3} mass: {:.3}",
-                e.id, s.x, s.y, s.vx, s.vy, m.m
-            )
-        }
+    for (e, s, m) in entity_iter!(m, State, Mass) {
+        println!(
+            "id: {} pos: ({:.3},{:.3}) vel: ({:.3},{:.3})",
+            e.id, s.x, s.y, s.vx, s.vy
+        )
+        //if let (Some(s), Some(m)) = (load!(e, m, State), load(e, masses)) {
+        //    println!(
+        //        "id: {} pos: ({:.3},{:.3}) vel: ({:.3},{:.3}) mass: {:.3}",
+        //        e.id, s.x, s.y, s.vx, s.vy, m.m
+        //    )
+        //}
     }
 }
 
@@ -197,5 +228,13 @@ fn main() {
         vy: 100.0,
     });
     m.add_entity().add(Force { fx: 0.0, fy: -1.0 });
+    m.add_entity()
+        .add(State {
+            x: 0.0,
+            y: 20.0,
+            vx: 2.0,
+            vy: 0.0,
+        })
+        .add(Mass { m: 20.0 });
     print_state(&mut m);
 }
