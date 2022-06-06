@@ -134,39 +134,44 @@ macro_rules! generate {
     };
 }
 
-//fn load<'a, T, E: EntityAccess<T>>(entity: &E, comp: impl Iterator<Item=&'a T>) -> Option<&'a T> {
-//    <E as EntityAccess<T>>::get(entity).map(|i| comp.skip(i).next().unwrap())
-//}
-//fn load_mut<'a, T, E: EntityAccess<T>>(entity: &E, comp: impl Iterator<Item=&'a mut T>) -> Option<&'a mut T> {
-//    <E as EntityAccess<T>>::get(entity).map(|i| comp.skip(i).next().unwrap())
-//}
-
-macro_rules! filter_map {
-    ($iter: expr, $entity: ident, $components: expr, $t:ty, ($($passthrough: ident),*)) => {
-        $iter.filter_map(|(e $(,$passthrough)*)| EntityAccess::<$t>::get(e).map(
-            |i| (e, $($passthrough,)* ComponentAccess::<$t>::get(&$components, i))))
-    };
-    ($iter: expr, $entity: ident, $components: expr, $t:ty) => {
-        $iter.filter_map(|e| EntityAccess::<$t>::get(e).map(
-            |i| (e, ComponentAccess::<$t>::get(&$components, i))))
-    };
-}
-
-macro_rules! entity_iter {
-    ($m: ident, $t: ty) => {
-        filter_map!($m.entities.iter(), e, $m.components, $t)
+macro_rules! run_system {
+    ($m: ident, ($e:ident $(,$name:ident: $type: ty)*) { $($body:expr);* }) => {
+        for $e in &$m.entities {
+            paste!(
+                if let ( $(Some($name),)* ) = (
+                    $(EntityAccess::<$type>::get($e).map(|i| &$m.components.[<$type:lower>][i].1),)*
+                ) {
+                    $($body);*
+                }
+            )
+        }
     };
 
-    ($m: ident, $t1: ty, $t2: ty) => {
-        filter_map!(entity_iter!($m, $t1), e, $m.components, $t2, (_1))
-    };
-
-    ($m: ident, $t1: ty, $t2: ty, $t3: ty) => {
-        filter_map!(entity_iter!($m, $t1, $t2), e, $m.components, $t2, (_1, _2))
+    ($m: ident, mut ($e:ident $(,$name:ident: $type: ty)*) { $($body:expr);* }) => {
+        let comp = &mut $m.components;
+        for $e in &$m.entities {
+            paste!(
+                if let ( $(Some($name),)* ) = (
+                    $(EntityAccess::<$type>::get($e).map(|i| &mut $m.components.[<$type:lower>][i].1),)*
+                ) {
+                    $($body);*
+                }
+            )
+        }
     };
 }
 
 generate!(State, Mass, Force);
+
+fn print_state(m: &mut Manager) {
+    run_system!(m, mut (e, s: State, m: Mass) {
+        s.x = 123.0;
+        println!(
+            "id: {} pos: ({:.3},{:.3}) vel: ({:.3},{:.3}) mass: {}",
+            e.id, s.x, s.y, s.vx, s.vy, m.m
+        )
+    });
+}
 
 fn update_state2(m: &mut Manager, dt: f64) {
     for (n, state) in m.components.state.iter_mut() {
@@ -195,21 +200,6 @@ fn update_state(m: &mut Manager, dt: f64) {
         }
     }
 }*/
-
-fn print_state(m: &mut Manager) {
-    for (e, s, m) in entity_iter!(m, State, Mass) {
-        println!(
-            "id: {} pos: ({:.3},{:.3}) vel: ({:.3},{:.3})",
-            e.id, s.x, s.y, s.vx, s.vy
-        )
-        //if let (Some(s), Some(m)) = (load!(e, m, State), load(e, masses)) {
-        //    println!(
-        //        "id: {} pos: ({:.3},{:.3}) vel: ({:.3},{:.3}) mass: {:.3}",
-        //        e.id, s.x, s.y, s.vx, s.vy, m.m
-        //    )
-        //}
-    }
-}
 
 fn main() {
     let mut m = Manager::default();
