@@ -77,26 +77,35 @@ macro_rules! generate {
 
 #[macro_export]
 macro_rules! run_system {
-    ($m: ident, ($e:ident $(,$name:ident: $type: ty)*) { $($body:expr);* }) => {
+    ($m: ident, ($e:ident $(,$name:ident: $type: ty)*) $body:block) => {
         for $e in &$m.entities {
             if let ( $(Some($name),)* ) = (
                 $(EntityAccess::<$type>::get($e).map(|i| ComponentAccess::<$type>::get(&$m.components, i)),)*
             ) {
-                $($body);*
+                $body
             }
         }
     };
 
-    ($m: ident, mut ($e:ident $(,$name:ident: $type: ty)*) { $($body:expr);* }) => {
+    ($m: ident, mut ($e:ident $(,$name:ident: $type: ty)*) $body:expr) => {
         for $e in &$m.entities {
             paste!(
             if let ( $(Some($name),)* ) = (
                 // TODO: This is is really annoying that it requires paste!() to work...
                 $($e.[<$type:lower>].map(|i| &mut $m.components.[<$type:lower>][i].1),)*
             ) {
-                $($body);*
+                $body
             }
             )
         }
     };
+}
+
+#[macro_export]
+macro_rules! component_iter {
+    ($m: ident, $t:ty) => {
+        paste!(
+            $m.components.[<$t:lower>].iter().map(|(_, c)| c)
+        )
+    }
 }

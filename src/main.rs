@@ -46,10 +46,9 @@ fn update_state(m: &mut Manager, dt: f64) {
     run_system!(m, mut (e, state: State) {
         state.x += state.vx * dt;
         state.y += state.vy * dt;
-        println!("state: {:?}", state)
     });
     run_system!(m, mut (e, state: State, mass: Mass) {
-        for (_, force) in &m.components.force {
+        for force in component_iter!(m, Force) {
             state.vx += dt * force.fx / mass.m;
             state.vy += dt * force.fy / mass.m;
         }
