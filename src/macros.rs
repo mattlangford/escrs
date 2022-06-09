@@ -1,7 +1,8 @@
 #![macro_use]
 
-macro_rules! add_accessors {
-    ($x:ident, $t:ty) => {
+#[macro_export]
+macro_rules! generate {
+    (impl $x:ident, $t:ty) => {
         impl EntityAccess<$t> for Entity {
             fn get(&self) -> &Option<usize> {
                 &self.$x
@@ -20,10 +21,7 @@ macro_rules! add_accessors {
             }
         }
     };
-}
 
-#[macro_export]
-macro_rules! generate {
     ($($t:ty),*) => {
         paste! {
             #[derive(Debug, Default)]
@@ -38,7 +36,7 @@ macro_rules! generate {
             }
 
             $(
-                add_accessors!([<$t:lower>], $t);
+                generate!(impl [<$t:lower>], $t);
             )*
 
 
@@ -76,27 +74,40 @@ macro_rules! generate {
 }
 
 #[macro_export]
+macro_rules! test {
+    // TODO: This is is really annoying that it requires paste!() to work...
+    (&mut $type:ty) => {
+        paste!($($e.[<$type:lower>].map(|i| &mut $m.components.[<$type:lower>][i].1),)*)
+    };
+}
+
+#[macro_export]
 macro_rules! run_system {
-    ($m: ident, ($e:ident $(,$name:ident: $type: ty)*) $body:block) => {
-        for $e in &$m.entities {
-            if let ( $(Some($name),)* ) = (
-                $(EntityAccess::<$type>::get($e).map(|i| ComponentAccess::<$type>::get(&$m.components, i)),)*
-            ) {
-                $body
-            }
-        }
+    (@expand $m:ident $e:ident $t:ty) => {
+        paste!($e.[<$t:lower>].map(|i| &$m.components.[<$t:lower>][i].1))
+    };
+    (@expand_mut $m:ident $e:ident $t:ty) => {
+        paste!($e.[<$t:lower>].map(|i| &mut $m.components.[<$t:lower>][i].1))
     };
 
-    ($m: ident, mut ($e:ident $(,$name:ident: $type: ty)*) $body:expr) => {
+    // Base case, no more types
+    (@parse [$m:ident $e:ident $body:block] [$($ns:ident)*] [$($cs:expr)*]) => {
+        if let ($(Some($ns),)*) = ($($cs,)*) { $body }
+    };
+
+    // Matches ...name: &mut Type, ... and then passes along info to the next recursion
+    (@parse [$m:ident $e:ident $body:block] [$($ns:ident)*] [$($cs:expr)*] $name:ident: &mut $t:ty, $($rest:tt)*) => {
+        run_system!(@parse [$m $e $body] [$($ns)* $name] [$($cs)* run_system!(@expand_mut $m $e $t)] $($rest)*)
+    };
+
+    // Matches ...name: &Type, ... and then passes along info to the next recursion
+    (@parse [$m:ident $e:ident $body:block] [$($ns:ident)*] [$($cs:expr)*] $name:ident: &$t:ty, $($rest:tt)*) => {
+        run_system!(@parse [$m $e $body] [$($ns)* $name] [$($cs)* run_system!(@expand $m $e $t)] $($rest)*)
+    };
+
+    ($m: ident, |$e:ident, ($($rest:tt)*)| $body:block) => {
         for $e in &$m.entities {
-            paste!(
-            if let ( $(Some($name),)* ) = (
-                // TODO: This is is really annoying that it requires paste!() to work...
-                $($e.[<$type:lower>].map(|i| &mut $m.components.[<$type:lower>][i].1),)*
-            ) {
-                $body
-            }
-            )
+            run_system!(@parse [$m $e $body] [] [] $($rest)*,)
         }
     };
 }
